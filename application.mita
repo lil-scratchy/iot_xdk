@@ -1,0 +1,118 @@
+/**
+ * Welcome to Eclipse Mita.
+ *
+ * Not sure what to do now?
+ * Check out the "Getting started" guide on https://mita.io.
+ */
+
+package main;
+import platforms.xdk110;
+
+//native unchecked fn get1() : uint32
+//    header "sgp30_util.h";
+//
+//native unchecked fn getSerialUpper(): uint32
+//    header "sgp30_util.h";
+//
+//native unchecked fn sgp30_probe() : int16
+//    header "sgp30.h";
+
+setup net: WLAN {
+  ssid = "EventiLoccioni";
+  authentication = Personal(psk = "welcometoloccioni");
+}
+
+setup adc: ADC {
+    var o2 = channel(CH5, Ref_2V5);
+}
+
+setup test: GPIO {
+  var inp = digitalIn(pin = PB2, mode = PullDown);
+}
+
+setup mqtt: MQTT {
+
+  transport = net;
+  url = "mqtt://broker.mqttdashboard.com";
+//  url = "mqtt://35.157.193.102:1883";
+//  authentication = Login(username = "rabbitmq", password = "rabbitmq");
+  clientId = "sensor1";
+
+  var light =       topic("scratchy/1/light");
+  var o2 =          topic("scratchy/1/o2");
+  var temp =        topic("scratchy/1/temp");
+  var pres =        topic("scratchy/1/pres");
+  var humi =        topic("scratchy/1/humi");
+  var co2 =         topic("scratchy/1/co2");
+  var tvoc =        topic("scratchy/1/tvoc");
+  var mc10 =        topic("scratchy/1/mc10");
+  var mc25 =        topic("scratchy/1/mc25");
+  var mc40 =        topic("scratchy/1/mc40");
+  var mc100 =       topic("scratchy/1/mc100");
+  var partical_s =  topic("scratchy/1/partical_s"); 
+
+}
+
+
+var ts = 0;
+var ones = 0;
+var reading = false; 
+var pos = 1;
+var val : uint32 = 0;
+fn read_bbb() {
+    let iv = test.inp.read();
+    //println(`BBB${iv}`);
+    if (iv) {
+        ones++;
+    } else {
+        ones = 0;
+    }
+    if (reading == true) {
+        if (iv) {
+            val += 1 << pos;
+        }
+        pos++;
+    }
+    if (pos == 32) {
+        println(`raw: ${val}`);
+        let tag = val % 16;
+        val /= 16;
+        println(`tag: ${tag} val: ${val}`);
+        if (tag == 3) {
+            mqtt.tvoc.write(`${val}`);
+        } else if (tag == 4) {
+            mqtt.co2.write(`${val}`);
+        } else if (tag == 5) {
+            mqtt.mc10.write(`${val}`);
+        } else if (tag == 6) {
+            mqtt.mc25.write(`${val}`);
+        } else if (tag == 7) {
+            mqtt.mc40.write(`${val}`);
+        } else if (tag == 8) {
+            mqtt.mc100.write(`${val}`);
+        } else if (tag == 9) {
+            mqtt.partical_s.write(`${val}`);
+        } 
+        val = 0;
+        pos = 0;
+        ones = 0;
+        reading = false;
+    }
+    if (ones == 8) {
+        reading = true;
+    }   
+}
+
+
+every 20 milliseconds {
+    ts++;
+    read_bbb();
+    if (ts % 50 == 0 && ts > 500) {
+        println("sensor reading and sending");
+        mqtt.light.write(`${light.intensity.read()}`);
+        mqtt.temp.write(`${environment.temperature.read()}`);
+        mqtt.pres.write(`${environment.pressure.read()}`);
+        mqtt.humi.write(`${environment.humidity.read()}`);
+        mqtt.o2.write(`${adc.o2.read()}`);
+    }
+}
